@@ -1,0 +1,630 @@
+#!/usr/bin/env groovy
+
+/**
+ * OpenMautoTest Jenkins Pipeline
+ * 
+ * 实现持续集成和自动化测试流水线
+ */
+
+pipeline {
+    agent any
+    
+    // 参数化构建
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['dev', 'test', 'staging', 'prod'],
+            description: '选择测试环境'
+        )
+        choice(
+            name: 'BROWSER',
+            choices: ['chromium', 'firefox', 'webkit'],
+            description: '选择浏览器类型'
+        )
+        booleanParam(
+            name: 'HEADLESS',
+            defaultValue: true,
+            description: '是否使用无头模式'
+        )
+        booleanParam(
+            name: 'RUN_WEB_TESTS',
+            defaultValue: true,
+            description: '是否运行Web端测试'
+        )
+        booleanParam(
+            name: 'RUN_MINI_TESTS',
+            defaultValue: false,
+            description: '是否运行小程序测试'
+        )
+        booleanParam(
+            name: 'RUN_API_TESTS',
+            defaultValue: true,
+            description: '是否运行API测试'
+        )
+        string(
+            name: 'TEST_TAGS',
+            defaultValue: 'smoke',
+            description: '测试标签过滤 (smoke, regression, slow等)'
+        )
+        string(
+            name: 'PARALLEL_WORKERS',
+            defaultValue: '4',
+            description: '并行执行的worker数量'
+        )
+    }
+    
+    // 环境变量
+    environment {
+        PYTHONPATH = "${WORKSPACE}"
+        PYTHONUNBUFFERED = "1"
+        
+        // 测试配置
+        BROWSER_TYPE = "${params.BROWSER}"
+        BROWSER_HEADLESS = "${params.HEADLESS}"
+        ENVIRONMENT = "${params.ENVIRONMENT}"
+        
+        // 输出目录
+        OUTPUT_DIR = "${WORKSPACE}/output"
+        ALLURE_RESULTS_DIR = "${OUTPUT_DIR}/allure-results"
+        SCREENSHOTS_DIR = "${OUTPUT_DIR}/screenshots"
+        
+        // 数据库配置 (从Jenkins凭据中获取)
+        DATABASE_URL = credentials('database-url')
+        
+        // Allure配置
+        ALLURE_HOME = "/opt/allure"
+        PATH = "${ALLURE_HOME}/bin:${PATH}"
+    }
+    
+    // 构建选项
+    options {
+        // 保留构建历史
+        buildDiscarder(logRotator(
+            numToKeepStr: '30',
+            daysToKeepStr: '30',
+            artifactNumToKeepStr: '10'
+        ))
+        
+        // 构建超时
+        timeout(time: 60, unit: 'MINUTES')
+        
+        // 时间戳
+        timestamps()
+        
+        // 跳过默认的checkout
+        skipDefaultCheckout()
+        
+        // 禁止并发构建
+        disableConcurrentBuilds()
+    }
+    
+    // 触发器
+    triggers {
+        // 定时触发 - 每天凌晨2点运行回归测试
+        cron(env.BRANCH_NAME == 'main' ? 'H 2 * * *' : '')
+        
+        // Webhook触发
+        githubPush()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    echo "🚀 Starting OpenMautoTest Pipeline"
+                    echo "Environment: ${params.ENVIRONMENT}"
+                    echo "Browser: ${params.BROWSER}"
+                    echo "Test Tags: ${params.TEST_TAGS}"
+                }
+                
+                // 检出代码
+                checkout scm
+                
+                // 显示构建信息
+                script {
+                    def buildInfo = [
+                        "Build Number": env.BUILD_NUMBER,
+                        "Branch": env.BRANCH_NAME,
+                        "Commit": env.GIT_COMMIT?.take(8),
+                        "Environment": params.ENVIRONMENT,
+                        "Browser": params.BROWSER,
+                        "Headless": params.HEADLESS
+                    ]
+                    
+                    buildInfo.each { key, value ->
+                        echo "${key}: ${value}"
+                    }
+                }
+            }
+        }
+        
+        stage('Environment Setup') {
+            parallel {
+                stage('Python Environment') {
+                    steps {
+                        echo "🐍 Setting up Python environment"
+                        
+                        // 检查Python版本
+                        sh 'python --version'
+                        sh 'pip --version'
+                        
+                        // 升级pip
+                        sh 'pip install --upgrade pip'
+                        
+                        // 安装依赖
+                        sh 'pip install -r requirements.txt'
+                        
+                        // 验证关键依赖
+                        sh 'python -c "import pytest; print(f\\"pytest version: {pytest.__version__}\\")"'
+                        sh 'python -c "import playwright; print(f\\"playwright version: {playwright.__version__}\\")"'
+                    }
+                }
+                
+                stage('Browser Setup') {
+                    when {
+                        anyOf {
+                            params.RUN_WEB_TESTS == true
+                            params.RUN_MINI_TESTS == true
+                        }
+                    }
+                    steps {
+                        echo "🌐 Setting up browser environment"
+                        
+                        // 安装Playwright浏览器
+                        sh 'playwright install ${BROWSER_TYPE}'
+                        
+                        // 安装系统依赖
+                        sh 'playwright install-deps ${BROWSER_TYPE}'
+                        
+                        // 验证浏览器安装
+                        script {
+                            try {
+                                sh 'python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); browser = p.${BROWSER_TYPE}.launch(); browser.close(); p.stop(); print(\\"Browser ${BROWSER_TYPE} is ready\\")"'
+                            } catch (Exception e) {
+                                echo "Browser verification failed: ${e.message}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                }
+                
+                stage('Directory Setup') {
+                    steps {
+                        echo "📁 Setting up output directories"
+                        
+                        // 创建输出目录
+                        sh '''
+                            mkdir -p ${OUTPUT_DIR}/{screenshots,logs,reports,videos,allure-results,temp}
+                            ls -la ${OUTPUT_DIR}
+                        '''
+                        
+                        // 设置权限
+                        sh 'chmod -R 755 ${OUTPUT_DIR}'
+                    }
+                }
+            }
+        }
+        
+        stage('Configuration Check') {
+            steps {
+                echo "⚙️ Checking configuration"
+                
+                // 检查配置文件
+                script {
+                    try {
+                        sh 'python -c "from configs.settings import get_settings; settings = get_settings(); print(f\\"Project: {settings.PROJECT_NAME}\\"); print(f\\"Environment: {settings.ENVIRONMENT}\\")"'
+                        echo "✅ Configuration check passed"
+                    } catch (Exception e) {
+                        echo "❌ Configuration check failed: ${e.message}"
+                        currentBuild.result = 'FAILURE'
+                        error("Configuration validation failed")
+                    }
+                }
+                
+                // 检查数据库连接（如果配置了的话）
+                script {
+                    try {
+                        sh 'python -c "from orchestrator.recorder import get_recorder; recorder = get_recorder(); print(\\"Database connection check passed\\")"'
+                        echo "✅ Database connection check passed"
+                    } catch (Exception e) {
+                        echo "⚠️ Database connection check failed, will use file fallback: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
+        stage('Static Code Analysis') {
+            parallel {
+                stage('Linting') {
+                    steps {
+                        echo "🔍 Running code linting"
+                        
+                        script {
+                            try {
+                                sh '''
+                                    flake8 common configs db drivers orchestrator flows llm \
+                                        --max-line-length=88 \
+                                        --exclude=__pycache__,migrations,output \
+                                        --format=junit-xml \
+                                        --output-file=${OUTPUT_DIR}/flake8-report.xml
+                                '''
+                                echo "✅ Flake8 linting passed"
+                            } catch (Exception e) {
+                                echo "⚠️ Flake8 linting found issues: ${e.message}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            // 发布linting报告
+                            script {
+                                if (fileExists("${OUTPUT_DIR}/flake8-report.xml")) {
+                                    publishTestResults testResultsPattern: "${OUTPUT_DIR}/flake8-report.xml"
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                stage('Type Checking') {
+                    steps {
+                        echo "🔍 Running type checking"
+                        
+                        script {
+                            try {
+                                sh '''
+                                    mypy common configs db drivers orchestrator flows llm \
+                                        --ignore-missing-imports \
+                                        --junit-xml ${OUTPUT_DIR}/mypy-report.xml
+                                '''
+                                echo "✅ MyPy type checking passed"
+                            } catch (Exception e) {
+                                echo "⚠️ MyPy type checking found issues: ${e.message}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Unit Tests') {
+            steps {
+                echo "🧪 Running unit tests"
+                
+                script {
+                    try {
+                        sh '''
+                            python -m pytest tests/unit/ \
+                                -v \
+                                --tb=short \
+                                --junitxml=${OUTPUT_DIR}/unit-test-results.xml \
+                                --cov=common \
+                                --cov=configs \
+                                --cov=db \
+                                --cov=drivers \
+                                --cov=orchestrator \
+                                --cov-report=xml:${OUTPUT_DIR}/coverage.xml \
+                                --cov-report=html:${OUTPUT_DIR}/htmlcov
+                        '''
+                        echo "✅ Unit tests passed"
+                    } catch (Exception e) {
+                        echo "❌ Unit tests failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+            post {
+                always {
+                    // 发布测试结果
+                    publishTestResults testResultsPattern: "${OUTPUT_DIR}/unit-test-results.xml"
+                    
+                    // 发布覆盖率报告
+                    script {
+                        if (fileExists("${OUTPUT_DIR}/coverage.xml")) {
+                            publishCoverage adapters: [
+                                coberturaAdapter("${OUTPUT_DIR}/coverage.xml")
+                            ], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            parallel {
+                stage('Web Tests') {
+                    when {
+                        params.RUN_WEB_TESTS == true
+                    }
+                    steps {
+                        echo "🌐 Running Web integration tests"
+                        
+                        script {
+                            def testCommand = """
+                                python -m pytest flows/login_and_buy/ \
+                                    -v \
+                                    -m "web_flow and ${params.TEST_TAGS}" \
+                                    --tb=short \
+                                    --browser=${params.BROWSER} \
+                                    --headless=${params.HEADLESS} \
+                                    --alluredir=${ALLURE_RESULTS_DIR} \
+                                    --junitxml=${OUTPUT_DIR}/web-test-results.xml \
+                                    -n ${params.PARALLEL_WORKERS}
+                            """
+                            
+                            try {
+                                sh testCommand
+                                echo "✅ Web tests passed"
+                            } catch (Exception e) {
+                                echo "❌ Web tests failed: ${e.message}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            // 保存截图
+                            archiveArtifacts artifacts: 'output/screenshots/**/*.png', allowEmptyArchive: true
+                            
+                            // 发布测试结果
+                            publishTestResults testResultsPattern: "${OUTPUT_DIR}/web-test-results.xml"
+                        }
+                    }
+                }
+                
+                stage('Mini Program Tests') {
+                    when {
+                        params.RUN_MINI_TESTS == true
+                    }
+                    steps {
+                        echo "📱 Running Mini Program integration tests"
+                        
+                        script {
+                            def testCommand = """
+                                python -m pytest flows/login_and_buy/ \
+                                    -v \
+                                    -m "mini_flow and ${params.TEST_TAGS}" \
+                                    --tb=short \
+                                    --alluredir=${ALLURE_RESULTS_DIR} \
+                                    --junitxml=${OUTPUT_DIR}/mini-test-results.xml
+                            """
+                            
+                            try {
+                                sh testCommand
+                                echo "✅ Mini Program tests passed"
+                            } catch (Exception e) {
+                                echo "❌ Mini Program tests failed: ${e.message}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: "${OUTPUT_DIR}/mini-test-results.xml"
+                        }
+                    }
+                }
+                
+                stage('API Tests') {
+                    when {
+                        params.RUN_API_TESTS == true
+                    }
+                    steps {
+                        echo "🔌 Running API integration tests"
+                        
+                        script {
+                            def testCommand = """
+                                python -m pytest tests/api/ \
+                                    -v \
+                                    -m "${params.TEST_TAGS}" \
+                                    --tb=short \
+                                    --alluredir=${ALLURE_RESULTS_DIR} \
+                                    --junitxml=${OUTPUT_DIR}/api-test-results.xml
+                            """
+                            
+                            try {
+                                sh testCommand
+                                echo "✅ API tests passed"
+                            } catch (Exception e) {
+                                echo "❌ API tests failed: ${e.message}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: "${OUTPUT_DIR}/api-test-results.xml"
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Generate Reports') {
+            steps {
+                echo "📊 Generating test reports"
+                
+                // 生成Allure报告
+                script {
+                    try {
+                        sh '''
+                            if [ -d "${ALLURE_RESULTS_DIR}" ] && [ "$(ls -A ${ALLURE_RESULTS_DIR})" ]; then
+                                allure generate ${ALLURE_RESULTS_DIR} -o ${OUTPUT_DIR}/allure-report --clean
+                                echo "✅ Allure report generated"
+                            else
+                                echo "⚠️ No Allure results found"
+                            fi
+                        '''
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to generate Allure report: ${e.message}"
+                    }
+                }
+                
+                // 生成自定义报告
+                script {
+                    try {
+                        sh 'python -c "from common.output_manager import get_output_manager; om = get_output_manager(); om.generate_index_html(); print(\\"Custom report generated\\")"'
+                        echo "✅ Custom report generated"
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to generate custom report: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        stage('Cleanup & Archive') {
+            steps {
+                echo "🧹 Cleaning up and archiving artifacts"
+                
+                // 清理旧文件
+                sh '''
+                    python -c "
+                    from common.output_manager import get_output_manager
+                    om = get_output_manager()
+                    stats = om.cleanup_old_files(max_age_days=1)
+                    print(f'Cleaned up files: {stats}')
+                    "
+                '''
+                
+                // 归档测试产物
+                archiveArtifacts artifacts: '''
+                    output/reports/**/*,
+                    output/allure-report/**/*,
+                    output/screenshots/**/*.png,
+                    output/logs/**/*.log,
+                    output/*.xml,
+                    output/index.html
+                ''', allowEmptyArchive: true
+                
+                // 发布Allure报告
+                script {
+                    if (fileExists("${OUTPUT_DIR}/allure-report")) {
+                        publishHTML([
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: "${OUTPUT_DIR}/allure-report",
+                            reportFiles: 'index.html',
+                            reportName: 'Allure Report',
+                            reportTitles: 'OpenMautoTest Allure Report'
+                        ])
+                    }
+                }
+                
+                // 发布自定义报告
+                script {
+                    if (fileExists("${OUTPUT_DIR}/index.html")) {
+                        publishHTML([
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: "${OUTPUT_DIR}",
+                            reportFiles: 'index.html',
+                            reportName: 'Test Output Index',
+                            reportTitles: 'OpenMautoTest Output Directory'
+                        ])
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo "🏁 Pipeline completed"
+            
+            // 发布所有测试结果
+            publishTestResults testResultsPattern: 'output/*-test-results.xml', allowEmptyResults: true
+            
+            // 发布Allure报告
+            allure([
+                includeProperties: false,
+                jdk: '',
+                properties: [],
+                reportBuildPolicy: 'ALWAYS',
+                results: [[path: 'output/allure-results']]
+            ])
+            
+            // 计算构建时长
+            script {
+                def duration = currentBuild.duration / 1000
+                def minutes = (duration / 60).intValue()
+                def seconds = (duration % 60).intValue()
+                echo "⏱️ Build duration: ${minutes}m ${seconds}s"
+            }
+        }
+        
+        success {
+            echo "✅ Pipeline completed successfully!"
+            
+            // 发送成功通知
+            script {
+                def message = """
+                🎉 OpenMautoTest Build #${env.BUILD_NUMBER} SUCCEEDED
+                
+                Environment: ${params.ENVIRONMENT}
+                Browser: ${params.BROWSER}
+                Branch: ${env.BRANCH_NAME}
+                Commit: ${env.GIT_COMMIT?.take(8)}
+                
+                📊 View Reports:
+                • Allure Report: ${env.BUILD_URL}allure
+                • Test Output: ${env.BUILD_URL}Test_Output_Index
+                """
+                
+                // 可以集成Slack、钉钉等通知
+                // slackSend(message: message, channel: '#qa-notifications')
+            }
+        }
+        
+        failure {
+            echo "❌ Pipeline failed!"
+            
+            // 发送失败通知
+            script {
+                def message = """
+                🚨 OpenMautoTest Build #${env.BUILD_NUMBER} FAILED
+                
+                Environment: ${params.ENVIRONMENT}
+                Browser: ${params.BROWSER}
+                Branch: ${env.BRANCH_NAME}
+                Commit: ${env.GIT_COMMIT?.take(8)}
+                
+                🔍 Check Details: ${env.BUILD_URL}console
+                """
+                
+                // 可以集成通知系统
+                // slackSend(message: message, channel: '#qa-alerts', color: 'danger')
+            }
+        }
+        
+        unstable {
+            echo "⚠️ Pipeline completed with warnings!"
+            
+            // 发送警告通知
+            script {
+                def message = """
+                ⚠️ OpenMautoTest Build #${env.BUILD_NUMBER} UNSTABLE
+                
+                Some tests failed or warnings were found.
+                
+                Environment: ${params.ENVIRONMENT}
+                Browser: ${params.BROWSER}
+                
+                📊 View Reports: ${env.BUILD_URL}allure
+                """
+                
+                // 可以集成通知系统
+                // slackSend(message: message, channel: '#qa-notifications', color: 'warning')
+            }
+        }
+        
+        cleanup {
+            // 清理工作空间（可选）
+            // cleanWs()
+        }
+    }
+}

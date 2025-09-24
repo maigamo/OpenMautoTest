@@ -1,0 +1,11 @@
+id,username,password,user_type,expected_result,description
+TC001,admin@test.com,admin123,admin,success,管理员登录测试
+TC002,user@test.com,user123,normal,success,普通用户登录测试
+TC003,vip@test.com,vip123,vip,success,VIP用户登录测试
+TC004,guest@test.com,guest123,guest,success,访客用户登录测试
+TC005,invalid@test.com,wrongpass,normal,failure,错误密码登录测试
+TC006,,empty123,normal,failure,空用户名登录测试
+TC007,empty@test.com,,normal,failure,空密码登录测试
+TC008,"","",normal,failure,空用户名密码测试
+TC009,special@test.com,123456,normal,failure,弱密码登录测试
+TC010,toolong@verylongdomainname.example.com,validpass123,normal,success,长邮箱地址登录测试

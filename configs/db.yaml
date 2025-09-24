@@ -1,0 +1,276 @@
+# OpenMautoTest 数据库配置文件
+# 支持多环境配置，根据 ENVIRONMENT 环境变量选择对应配置
+
+# 开发环境配置
+development:
+  # PostgreSQL 主数据库
+  postgresql:
+    host: localhost
+    port: 5432
+    database: openmautotest_dev
+    username: postgres
+    password: ""
+    pool_size: 10
+    max_overflow: 20
+    pool_timeout: 30
+    pool_recycle: 3600
+    echo: false
+    echo_pool: false
+    
+  # MongoDB 日志数据库
+  mongodb:
+    host: localhost
+    port: 27017
+    database: openmautotest_dev
+    username: ""
+    password: ""
+    auth_source: admin
+    connect_timeout: 30000
+    server_selection_timeout: 30000
+    
+  # Redis 缓存数据库
+  redis:
+    host: localhost
+    port: 6379
+    db: 0
+    password: ""
+    socket_timeout: 5
+    socket_connect_timeout: 5
+    max_connections: 10
+    decode_responses: true
+
+# 测试环境配置
+testing:
+  postgresql:
+    host: localhost
+    port: 5432
+    database: openmautotest_test
+    username: postgres
+    password: ""
+    pool_size: 5
+    max_overflow: 10
+    pool_timeout: 30
+    pool_recycle: 3600
+    echo: false
+    echo_pool: false
+    
+  mongodb:
+    host: localhost
+    port: 27017
+    database: openmautotest_test
+    username: ""
+    password: ""
+    auth_source: admin
+    connect_timeout: 30000
+    server_selection_timeout: 30000
+    
+  redis:
+    host: localhost
+    port: 6379
+    db: 1
+    password: ""
+    socket_timeout: 5
+    socket_connect_timeout: 5
+    max_connections: 5
+    decode_responses: true
+
+# 预发布环境配置
+staging:
+  postgresql:
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:5432}
+    database: ${DB_NAME:openmautotest_staging}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD}
+    pool_size: 15
+    max_overflow: 30
+    pool_timeout: 30
+    pool_recycle: 3600
+    echo: false
+    echo_pool: false
+    
+  mongodb:
+    host: ${MONGO_HOST:localhost}
+    port: ${MONGO_PORT:27017}
+    database: ${MONGO_DB:openmautotest_staging}
+    username: ${MONGO_USER}
+    password: ${MONGO_PASSWORD}
+    auth_source: admin
+    connect_timeout: 30000
+    server_selection_timeout: 30000
+    
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    db: ${REDIS_DB:0}
+    password: ${REDIS_PASSWORD}
+    socket_timeout: 5
+    socket_connect_timeout: 5
+    max_connections: 15
+    decode_responses: true
+
+# 生产环境配置
+production:
+  postgresql:
+    host: ${DB_HOST}
+    port: ${DB_PORT:5432}
+    database: ${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    pool_size: 20
+    max_overflow: 40
+    pool_timeout: 30
+    pool_recycle: 3600
+    echo: false
+    echo_pool: false
+    ssl_mode: require
+    
+  mongodb:
+    host: ${MONGO_HOST}
+    port: ${MONGO_PORT:27017}
+    database: ${MONGO_DB}
+    username: ${MONGO_USER}
+    password: ${MONGO_PASSWORD}
+    auth_source: admin
+    connect_timeout: 30000
+    server_selection_timeout: 30000
+    ssl: true
+    
+  redis:
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT:6379}
+    db: ${REDIS_DB:0}
+    password: ${REDIS_PASSWORD}
+    socket_timeout: 5
+    socket_connect_timeout: 5
+    max_connections: 20
+    decode_responses: true
+    ssl: true
+
+# 数据库表配置
+tables:
+  # 测试执行记录表
+  test_case_runs:
+    table_name: test_case_runs
+    indexes:
+      - columns: [run_id]
+        unique: false
+      - columns: [project_name, flow_name]
+        unique: false
+      - columns: [status]
+        unique: false
+      - columns: [start_time]
+        unique: false
+      - columns: [environment]
+        unique: false
+    partitioning:
+      enabled: true
+      strategy: range
+      column: start_time
+      interval: monthly
+      
+  # 测试步骤记录表
+  test_steps:
+    table_name: test_steps
+    indexes:
+      - columns: [test_case_run_id]
+        unique: false
+      - columns: [step_name]
+        unique: false
+      - columns: [status]
+        unique: false
+    partitioning:
+      enabled: true
+      strategy: range
+      column: created_at
+      interval: monthly
+
+# 连接池配置
+connection_pools:
+  postgresql:
+    min_size: 5
+    max_size: 20
+    max_idle_time: 300
+    max_lifetime: 3600
+    health_check_interval: 30
+    
+  mongodb:
+    min_pool_size: 5
+    max_pool_size: 20
+    max_idle_time: 300
+    wait_queue_timeout: 30
+    
+  redis:
+    min_connections: 5
+    max_connections: 20
+    retry_on_timeout: true
+    health_check_interval: 30
+
+# 数据库迁移配置
+migration:
+  # Alembic 配置
+  alembic:
+    script_location: db/migrations
+    file_template: "%%(year)d%%(month).2d%%(day).2d_%%(hour).2d%%(minute).2d_%%(rev)s_%%(slug)s"
+    timezone: UTC
+    
+  # 备份配置
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # 每天凌晨2点
+    retention_days: 30
+    compression: gzip
+    
+  # 数据清理配置
+  cleanup:
+    enabled: true
+    schedule: "0 3 * * 0"  # 每周日凌晨3点
+    retention_policy:
+      test_case_runs: 90  # 保留90天
+      test_steps: 30      # 保留30天
+      logs: 7             # 保留7天
+
+# 监控配置
+monitoring:
+  # 慢查询监控
+  slow_query:
+    enabled: true
+    threshold: 1000  # 毫秒
+    log_file: output/logs/slow_queries.log
+    
+  # 连接池监控
+  connection_pool:
+    enabled: true
+    alert_threshold: 80  # 连接池使用率超过80%时告警
+    
+  # 磁盘空间监控
+  disk_space:
+    enabled: true
+    alert_threshold: 90  # 磁盘使用率超过90%时告警
+    
+# 安全配置
+security:
+  # 数据加密
+  encryption:
+    enabled: false
+    algorithm: AES-256-GCM
+    key_rotation_days: 90
+    
+  # 访问控制
+  access_control:
+    enabled: true
+    allowed_ips: []
+    blocked_ips: []
+    
+  # 审计日志
+  audit_log:
+    enabled: true
+    log_file: output/logs/db_audit.log
+    events:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - CREATE
+      - DROP
+      - ALTER

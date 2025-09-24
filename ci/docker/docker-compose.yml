@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # OpenMautoTest 主应用
+  openmautotest:
+    build:
+      context: ../../
+      dockerfile: ci/docker/Dockerfile
+    container_name: openmautotest-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=${ENVIRONMENT:-test}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - BROWSER_TYPE=${BROWSER_TYPE:-chromium}
+      - BROWSER_HEADLESS=${BROWSER_HEADLESS:-true}
+    volumes:
+      - ./output:/app/output
+      - ./config:/app/config
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - openmautotest-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: openmautotest-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-openmautotest}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - openmautotest-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-openmautotest}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: openmautotest-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_data:/data
+    networks:
+      - openmautotest-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: openmautotest-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./output:/usr/share/nginx/html/output:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - openmautotest
+    networks:
+      - openmautotest-network
+
+  # Allure Report Server (可选)
+  allure:
+    image: frankescobar/allure-docker-service
+    container_name: openmautotest-allure
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - CHECK_RESULTS_EVERY_SECONDS=3
+      - KEEP_HISTORY=1
+    volumes:
+      - ./output/allure-results:/app/allure-results
+      - ./output/allure-reports:/app/default-reports
+    networks:
+      - openmautotest-network
+
+  # Jenkins (可选，用于CI/CD)
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: openmautotest-jenkins
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    environment:
+      - JENKINS_OPTS=--httpPort=8080
+      - JAVA_OPTS=-Xmx1024m
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - openmautotest-network
+    profiles:
+      - jenkins
+
+  # Portainer (容器管理界面)
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: openmautotest-portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - openmautotest-network
+    profiles:
+      - management
+
+# 数据卷
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  jenkins_data:
+    driver: local
+  portainer_data:
+    driver: local
+
+# 网络
+networks:
+  openmautotest-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

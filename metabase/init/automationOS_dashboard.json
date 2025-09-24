@@ -1,0 +1,222 @@
+{
+  "dashboard": {
+    "name": "OpenMautoTest 质量核心看板",
+    "description": "OpenMautoTest自动化测试质量监控仪表盘，包含6个核心指标",
+    "parameters": [],
+    "cards": [
+      {
+        "id": 1,
+        "name": "历史自动化执行总数",
+        "description": "显示每日自动化测试执行的总数趋势",
+        "display": "scalar",
+        "visualization_settings": {
+          "scalar.field": "total_executions",
+          "scalar.switch_positive_negative": false,
+          "graph.dimensions": ["execution_date"],
+          "graph.metrics": ["total_executions"]
+        },
+        "dataset_query": {
+          "type": "native",
+          "native": {
+            "query": "SELECT COUNT(DISTINCT run_id) as total_executions FROM test_case_runs WHERE start_time >= CURRENT_DATE - INTERVAL '30 days'"
+          }
+        },
+        "position": {
+          "row": 0,
+          "col": 0,
+          "sizeX": 4,
+          "sizeY": 3
+        }
+      },
+      {
+        "id": 2,
+        "name": "历次自动化执行的测试用例数趋势",
+        "description": "显示测试用例数量的历史趋势",
+        "display": "line",
+        "visualization_settings": {
+          "graph.dimensions": ["test_date"],
+          "graph.metrics": ["total_cases"],
+          "graph.show_goal": false,
+          "graph.goal_value": null,
+          "line.interpolate": "linear",
+          "line.marker_enabled": true
+        },
+        "dataset_query": {
+          "type": "native",
+          "native": {
+            "query": "SELECT DATE(start_time) as test_date, COUNT(*) as total_cases FROM test_case_runs WHERE start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY DATE(start_time) ORDER BY test_date"
+          }
+        },
+        "position": {
+          "row": 0,
+          "col": 4,
+          "sizeX": 8,
+          "sizeY": 3
+        }
+      },
+      {
+        "id": 3,
+        "name": "测试用例成功率",
+        "description": "显示测试用例通过率的分布",
+        "display": "pie",
+        "visualization_settings": {
+          "pie.dimension": "status",
+          "pie.metric": "count",
+          "pie.show_legend": true,
+          "pie.colors": {
+            "passed": "#4CAF50",
+            "failed": "#F44336",
+            "skipped": "#FF9800"
+          }
+        },
+        "dataset_query": {
+          "type": "native",
+          "native": {
+            "query": "SELECT status, COUNT(*) as count FROM test_case_runs WHERE start_time >= CURRENT_DATE - INTERVAL '7 days' GROUP BY status"
+          }
+        },
+        "position": {
+          "row": 3,
+          "col": 0,
+          "sizeX": 4,
+          "sizeY": 3
+        }
+      },
+      {
+        "id": 4,
+        "name": "单次任务总耗时趋势",
+        "description": "显示每次测试运行的总耗时趋势",
+        "display": "line",
+        "visualization_settings": {
+          "graph.dimensions": ["execution_date"],
+          "graph.metrics": ["total_duration_minutes"],
+          "graph.show_goal": false,
+          "line.interpolate": "linear",
+          "line.marker_enabled": true,
+          "graph.y_axis.title_text": "耗时 (分钟)"
+        },
+        "dataset_query": {
+          "type": "native",
+          "native": {
+            "query": "WITH run_durations AS (SELECT run_id, DATE(MIN(start_time)) as execution_date, SUM(duration) / 60.0 as total_duration_minutes FROM test_case_runs WHERE start_time >= CURRENT_DATE - INTERVAL '30 days' AND duration IS NOT NULL GROUP BY run_id, DATE(MIN(start_time))) SELECT execution_date, AVG(total_duration_minutes) as total_duration_minutes FROM run_durations GROUP BY execution_date ORDER BY execution_date"
+          }
+        },
+        "position": {
+          "row": 3,
+          "col": 4,
+          "sizeX": 8,
+          "sizeY": 3
+        }
+      },
+      {
+        "id": 5,
+        "name": "节省人时累计曲线",
+        "description": "显示自动化测试节省的人工时间累计",
+        "display": "area",
+        "visualization_settings": {
+          "graph.dimensions": ["test_date"],
+          "graph.metrics": ["cumulative_saved_hours"],
+          "graph.show_goal": false,
+          "area.stacked": false,
+          "graph.y_axis.title_text": "累计节省时间 (小时)"
+        },
+        "dataset_query": {
+          "type": "native",
+          "native": {
+            "query": "WITH daily_stats AS (SELECT DATE(start_time) as test_date, COUNT(*) * 5 * 60 - SUM(duration) as saved_seconds FROM test_case_runs WHERE start_time >= CURRENT_DATE - INTERVAL '30 days' AND duration IS NOT NULL GROUP BY DATE(start_time)) SELECT test_date, SUM(saved_seconds / 3600.0) OVER (ORDER BY test_date) as cumulative_saved_hours FROM daily_stats ORDER BY test_date"
+          }
+        },
+        "position": {
+          "row": 6,
+          "col": 0,
+          "sizeX": 8,
+          "sizeY": 3
+        }
+      },
+      {
+        "id": 6,
+        "name": "失败用例TOP10",
+        "description": "显示最常失败的测试用例排行榜",
+        "display": "bar",
+        "visualization_settings": {
+          "graph.dimensions": ["test_case_name"],
+          "graph.metrics": ["failure_count"],
+          "graph.show_goal": false,
+          "bar.stacked": false,
+          "graph.y_axis.title_text": "失败次数",
+          "graph.x_axis.title_text": "测试用例",
+          "graph.colors": ["#F44336"]
+        },
+        "dataset_query": {
+          "type": "native",
+          "native": {
+            "query": "SELECT test_case_name, COUNT(*) as failure_count FROM test_case_runs WHERE start_time >= CURRENT_DATE - INTERVAL '30 days' AND status = 'failed' GROUP BY test_case_name ORDER BY failure_count DESC LIMIT 10"
+          }
+        },
+        "position": {
+          "row": 6,
+          "col": 8,
+          "sizeX": 4,
+          "sizeY": 3
+        }
+      }
+    ],
+    "filters": [
+      {
+        "id": "date_filter",
+        "name": "时间范围",
+        "type": "date/range",
+        "default": "past30days"
+      },
+      {
+        "id": "environment_filter", 
+        "name": "测试环境",
+        "type": "category",
+        "values": ["dev", "test", "staging", "prod"]
+      },
+      {
+        "id": "project_filter",
+        "name": "项目名称", 
+        "type": "category"
+      }
+    ],
+    "layout": {
+      "grid_size": 12,
+      "row_height": 80
+    },
+    "theme": {
+      "colors": {
+        "primary": "#1976D2",
+        "success": "#4CAF50", 
+        "warning": "#FF9800",
+        "error": "#F44336",
+        "info": "#2196F3"
+      }
+    }
+  },
+  "metadata": {
+    "version": "1.0",
+    "created_by": "OpenMautoTest",
+    "created_at": "2025-09-24",
+    "description": "OpenMautoTest自动化测试质量核心监控仪表盘，提供6个关键指标的可视化展示",
+    "tags": ["automation", "testing", "quality", "metrics"],
+    "dependencies": [
+      "test_case_runs table",
+      "PostgreSQL database"
+    ]
+  },
+  "installation": {
+    "requirements": [
+      "Metabase v0.47.7+",
+      "PostgreSQL 12+",
+      "test_case_runs table with required schema"
+    ],
+    "setup_steps": [
+      "1. 确保数据库连接已配置",
+      "2. 验证test_case_runs表存在",
+      "3. 导入仪表盘配置",
+      "4. 配置数据刷新频率",
+      "5. 设置用户访问权限"
+    ]
+  }
+}

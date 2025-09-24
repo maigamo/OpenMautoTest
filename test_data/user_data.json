@@ -1,0 +1,72 @@
+[
+  {
+    "id": "USER001",
+    "username": "admin@openmautotest.com",
+    "password": "admin123456",
+    "user_type": "admin",
+    "expected_result": "success",
+    "description": "管理员用户登录测试",
+    "permissions": ["read", "write", "delete", "admin"],
+    "profile": {
+      "name": "系统管理员",
+      "email": "admin@openmautotest.com",
+      "phone": "13800138000"
+    }
+  },
+  {
+    "id": "USER002", 
+    "username": "user@openmautotest.com",
+    "password": "user123456",
+    "user_type": "normal",
+    "expected_result": "success",
+    "description": "普通用户登录测试",
+    "permissions": ["read", "write"],
+    "profile": {
+      "name": "普通用户",
+      "email": "user@openmautotest.com",
+      "phone": "13800138001"
+    }
+  },
+  {
+    "id": "USER003",
+    "username": "vip@openmautotest.com", 
+    "password": "vip123456",
+    "user_type": "vip",
+    "expected_result": "success",
+    "description": "VIP用户登录测试",
+    "permissions": ["read", "write", "premium"],
+    "profile": {
+      "name": "VIP用户",
+      "email": "vip@openmautotest.com",
+      "phone": "13800138002"
+    }
+  },
+  {
+    "id": "USER004",
+    "username": "invalid@openmautotest.com",
+    "password": "wrongpassword",
+    "user_type": "invalid",
+    "expected_result": "failure",
+    "description": "无效用户登录测试",
+    "permissions": [],
+    "profile": {
+      "name": "无效用户",
+      "email": "invalid@openmautotest.com",
+      "phone": ""
+    }
+  },
+  {
+    "id": "USER005",
+    "username": "",
+    "password": "",
+    "user_type": "empty",
+    "expected_result": "failure",
+    "description": "空用户名密码测试",
+    "permissions": [],
+    "profile": {
+      "name": "",
+      "email": "",
+      "phone": ""
+    }
+  }
+]

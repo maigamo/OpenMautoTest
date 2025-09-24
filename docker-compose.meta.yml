@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库 (用于OpenMautoTest数据和Metabase配置)
+  postgres:
+    image: postgres:15-alpine
+    container_name: openmautotest-postgres-meta
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-openmautotest}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_MULTIPLE_DATABASES=openmautotest,metabase
+    volumes:
+      - postgres_meta_data:/var/lib/postgresql/data
+      - ./metabase/init-db:/docker-entrypoint-initdb.d
+    networks:
+      - metabase-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Metabase 数据可视化平台
+  metabase:
+    build:
+      context: ./metabase
+      dockerfile: Dockerfile-meta
+    container_name: openmautotest-metabase
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Metabase数据库配置
+      - MB_DB_TYPE=postgres
+      - MB_DB_DBNAME=metabase
+      - MB_DB_PORT=5432
+      - MB_DB_USER=${POSTGRES_USER:-postgres}
+      - MB_DB_PASS=${POSTGRES_PASSWORD:-postgres}
+      - MB_DB_HOST=postgres
+      
+      # OpenMautoTest数据库配置
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-openmautotest}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      
+      # Metabase应用配置
+      - MB_SITE_NAME=OpenMautoTest Analytics
+      - MB_SITE_URL=http://localhost:3000
+      - MB_ADMIN_EMAIL=${MB_ADMIN_EMAIL:-admin@openmautotest.com}
+      - MB_ADMIN_PASSWORD=${MB_ADMIN_PASSWORD:-admin123}
+      - MB_ENCRYPTION_SECRET_KEY=${MB_ENCRYPTION_SECRET_KEY:-openmautotest_secret_key_change_in_production}
+      
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - JAVA_TIMEZONE=Asia/Shanghai
+      
+      # JVM配置
+      - JAVA_OPTS=-Xmx1g -Xms512m
+    volumes:
+      - metabase_data:/metabase-data
+      - ./metabase/init:/app/init
+      - ./metabase/sql:/app/sql
+      - ./output:/app/output:ro  # 只读访问测试输出
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - metabase-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Metabase自动配置服务
+  metabase-setup:
+    build:
+      context: ./metabase
+      dockerfile: Dockerfile-meta
+    container_name: openmautotest-metabase-setup
+    entrypoint: ["/app/setup-metabase.sh"]
+    environment:
+      - METABASE_URL=http://metabase:3000
+      - MB_ADMIN_EMAIL=${MB_ADMIN_EMAIL:-admin@openmautotest.com}
+      - MB_ADMIN_PASSWORD=${MB_ADMIN_PASSWORD:-admin123}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-openmautotest}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./metabase/init:/app/init
+      - ./metabase/sql:/app/sql
+    depends_on:
+      metabase:
+        condition: service_healthy
+    networks:
+      - metabase-network
+    profiles:
+      - setup  # 使用profile控制，需要时手动启动
+
+  # Redis (可选，用于缓存)
+  redis:
+    image: redis:7-alpine
+    container_name: openmautotest-redis-meta
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_meta_data:/data
+    networks:
+      - metabase-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Nginx (可选，用于反向代理和静态文件服务)
+  nginx:
+    image: nginx:alpine
+    container_name: openmautotest-nginx-meta
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./metabase/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./output:/usr/share/nginx/html/output:ro
+    depends_on:
+      - metabase
+    networks:
+      - metabase-network
+    profiles:
+      - nginx  # 可选服务
+
+  # Grafana (可选，额外的监控面板)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: openmautotest-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./metabase/grafana:/etc/grafana/provisioning
+    networks:
+      - metabase-network
+    profiles:
+      - grafana  # 可选服务
+
+# 数据卷
+volumes:
+  postgres_meta_data:
+    driver: local
+  metabase_data:
+    driver: local
+  redis_meta_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# 网络
+networks:
+  metabase-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

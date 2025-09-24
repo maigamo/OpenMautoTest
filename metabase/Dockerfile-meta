@@ -1,0 +1,50 @@
+# OpenMautoTest Metabase 定制镜像
+# 基于官方Metabase镜像，预配置OpenMautoTest仪表盘
+
+FROM metabase/metabase:v0.47.7
+
+# 设置环境变量
+ENV MB_DB_TYPE=postgres
+ENV MB_DB_DBNAME=metabase
+ENV MB_DB_PORT=5432
+ENV MB_DB_USER=metabase
+ENV MB_DB_PASS=metabase
+ENV MB_DB_HOST=postgres
+
+# Metabase配置
+ENV MB_SITE_NAME="OpenMautoTest Analytics"
+ENV MB_SITE_URL=http://localhost:3000
+ENV MB_ADMIN_EMAIL=admin@openmautotest.com
+ENV MB_ENCRYPTION_SECRET_KEY=openmautotest_secret_key_change_in_production
+
+# 时区设置
+ENV TZ=Asia/Shanghai
+ENV JAVA_TIMEZONE=Asia/Shanghai
+
+# 创建工作目录
+WORKDIR /app
+
+# 复制初始化脚本和配置
+COPY init/ /app/init/
+COPY sql/ /app/sql/
+COPY setup-metabase.sh /app/setup-metabase.sh
+
+# 设置权限
+USER root
+RUN chmod +x /app/setup-metabase.sh
+
+# 创建数据目录
+RUN mkdir -p /app/data /app/logs
+
+# 切换回metabase用户
+USER metabase
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
+
+# 暴露端口
+EXPOSE 3000
+
+# 启动命令
+CMD ["java", "-jar", "/app/metabase.jar"]

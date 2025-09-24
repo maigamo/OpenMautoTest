@@ -1,0 +1,388 @@
+# OpenMautoTest Jenkins CI/CD 配置文件
+# 支持多环境的Jenkins集成配置
+
+# 开发环境Jenkins配置
+development:
+  server:
+    url: http://localhost:8080
+    username: ${JENKINS_USER:admin}
+    token: ${JENKINS_TOKEN}
+    timeout: 30
+    verify_ssl: false
+    
+  jobs:
+    # 主要测试作业
+    main_test_job:
+      name: openmautotest-dev
+      description: "OpenMautoTest Development Environment Tests"
+      schedule: "H/15 * * * *"  # 每15分钟运行一次
+      parameters:
+        - name: TEST_ENV
+          type: choice
+          choices: [dev, test]
+          default: dev
+        - name: BROWSER_TYPE
+          type: choice
+          choices: [chromium, firefox, webkit]
+          default: chromium
+        - name: HEADLESS
+          type: boolean
+          default: true
+        - name: TEST_SUITE
+          type: string
+          default: "smoke"
+      
+    # 回归测试作业
+    regression_test_job:
+      name: openmautotest-regression-dev
+      description: "OpenMautoTest Regression Tests"
+      schedule: "0 2 * * *"  # 每天凌晨2点运行
+      parameters:
+        - name: TEST_ENV
+          type: choice
+          choices: [dev, test]
+          default: dev
+        - name: PARALLEL_WORKERS
+          type: string
+          default: "4"
+      
+    # 性能测试作业
+    performance_test_job:
+      name: openmautotest-performance-dev
+      description: "OpenMautoTest Performance Tests"
+      schedule: "0 3 * * 0"  # 每周日凌晨3点运行
+      parameters:
+        - name: DURATION
+          type: string
+          default: "300"
+        - name: CONCURRENT_USERS
+          type: string
+          default: "10"
+
+# 测试环境Jenkins配置
+testing:
+  server:
+    url: ${JENKINS_URL:http://jenkins.test.com}
+    username: ${JENKINS_USER}
+    token: ${JENKINS_TOKEN}
+    timeout: 60
+    verify_ssl: true
+    
+  jobs:
+    main_test_job:
+      name: openmautotest-test
+      description: "OpenMautoTest Testing Environment Tests"
+      schedule: "H * * * *"  # 每小时运行一次
+      parameters:
+        - name: TEST_ENV
+          type: choice
+          choices: [test, staging]
+          default: test
+        - name: BROWSER_TYPE
+          type: choice
+          choices: [chromium, firefox, webkit]
+          default: chromium
+        - name: HEADLESS
+          type: boolean
+          default: true
+        - name: TEST_SUITE
+          type: choice
+          choices: [smoke, regression, full]
+          default: regression
+      
+    deployment_test_job:
+      name: openmautotest-deployment-test
+      description: "OpenMautoTest Deployment Tests"
+      trigger: webhook
+      parameters:
+        - name: DEPLOYMENT_VERSION
+          type: string
+          default: "latest"
+        - name: ROLLBACK_ON_FAILURE
+          type: boolean
+          default: true
+
+# 预发布环境Jenkins配置
+staging:
+  server:
+    url: ${JENKINS_URL}
+    username: ${JENKINS_USER}
+    token: ${JENKINS_TOKEN}
+    timeout: 120
+    verify_ssl: true
+    
+  jobs:
+    main_test_job:
+      name: openmautotest-staging
+      description: "OpenMautoTest Staging Environment Tests"
+      schedule: "0 */4 * * *"  # 每4小时运行一次
+      parameters:
+        - name: TEST_ENV
+          type: choice
+          choices: [staging]
+          default: staging
+        - name: BROWSER_TYPE
+          type: choice
+          choices: [chromium, firefox, webkit]
+          default: chromium
+        - name: HEADLESS
+          type: boolean
+          default: true
+        - name: TEST_SUITE
+          type: choice
+          choices: [smoke, regression, full]
+          default: full
+      
+    pre_release_test_job:
+      name: openmautotest-pre-release
+      description: "OpenMautoTest Pre-release Tests"
+      trigger: manual
+      parameters:
+        - name: RELEASE_VERSION
+          type: string
+          required: true
+        - name: FULL_REGRESSION
+          type: boolean
+          default: true
+
+# 生产环境Jenkins配置
+production:
+  server:
+    url: ${JENKINS_URL}
+    username: ${JENKINS_USER}
+    token: ${JENKINS_TOKEN}
+    timeout: 300
+    verify_ssl: true
+    
+  jobs:
+    health_check_job:
+      name: openmautotest-health-check
+      description: "OpenMautoTest Production Health Check"
+      schedule: "*/5 * * * *"  # 每5分钟运行一次
+      parameters:
+        - name: TEST_ENV
+          type: choice
+          choices: [production]
+          default: production
+        - name: ALERT_ON_FAILURE
+          type: boolean
+          default: true
+      
+    smoke_test_job:
+      name: openmautotest-smoke-prod
+      description: "OpenMautoTest Production Smoke Tests"
+      schedule: "0 */2 * * *"  # 每2小时运行一次
+      parameters:
+        - name: TEST_ENV
+          type: choice
+          choices: [production]
+          default: production
+        - name: CRITICAL_ONLY
+          type: boolean
+          default: true
+
+# 流水线配置
+pipelines:
+  # 持续集成流水线
+  ci_pipeline:
+    name: openmautotest-ci
+    description: "OpenMautoTest Continuous Integration Pipeline"
+    stages:
+      - name: checkout
+        script: |
+          checkout scm
+      - name: setup
+        script: |
+          python -m pip install -r requirements.txt
+          playwright install
+      - name: lint
+        script: |
+          flake8 common configs db drivers orchestrator llm
+          mypy common configs db drivers orchestrator llm --ignore-missing-imports
+      - name: unit_tests
+        script: |
+          python -m pytest tests/unit -v --junitxml=output/junit/unit-tests.xml
+      - name: integration_tests
+        script: |
+          python -m pytest tests/integration -v --junitxml=output/junit/integration-tests.xml
+      - name: e2e_tests
+        script: |
+          python -m pytest flows -v --alluredir=output/allure-results
+        parallel: true
+        matrix:
+          browser: [chromium, firefox, webkit]
+          environment: [dev, test]
+      - name: report
+        script: |
+          allure generate output/allure-results -o output/allure-report --clean
+        post_always: true
+    
+    post_actions:
+      always:
+        - archive_artifacts:
+            patterns: "output/**/*"
+        - publish_junit:
+            test_results: "output/junit/*.xml"
+        - publish_allure:
+            results: "output/allure-results"
+      success:
+        - notify:
+            type: email
+            recipients: ["team@example.com"]
+            subject: "✅ OpenMautoTest CI Pipeline Success"
+      failure:
+        - notify:
+            type: slack
+            webhook: ${SLACK_WEBHOOK}
+            message: "❌ OpenMautoTest CI Pipeline Failed"
+
+  # 部署流水线
+  cd_pipeline:
+    name: openmautotest-cd
+    description: "OpenMautoTest Continuous Deployment Pipeline"
+    trigger: 
+      - branch: main
+        conditions: [ci_pipeline_success]
+    stages:
+      - name: deploy_test
+        environment: testing
+        script: |
+          # 部署到测试环境
+          echo "Deploying to testing environment"
+      - name: test_deployment
+        script: |
+          python -m pytest flows -m smoke --env=test
+      - name: deploy_staging
+        environment: staging
+        approval_required: true
+        script: |
+          # 部署到预发布环境
+          echo "Deploying to staging environment"
+      - name: test_staging
+        script: |
+          python -m pytest flows -m regression --env=staging
+      - name: deploy_production
+        environment: production
+        approval_required: true
+        approvers: ["admin@example.com"]
+        script: |
+          # 部署到生产环境
+          echo "Deploying to production environment"
+      - name: verify_production
+        script: |
+          python -m pytest flows -m smoke --env=production
+
+# 通知配置
+notifications:
+  email:
+    enabled: true
+    smtp_server: ${SMTP_HOST}
+    smtp_port: ${SMTP_PORT:587}
+    username: ${SMTP_USER}
+    password: ${SMTP_PASSWORD}
+    recipients:
+      success: ["team@example.com"]
+      failure: ["team@example.com", "oncall@example.com"]
+    
+  slack:
+    enabled: true
+    webhook_url: ${SLACK_WEBHOOK}
+    channels:
+      success: "#ci-success"
+      failure: "#ci-alerts"
+    
+  wechat_work:
+    enabled: false
+    webhook_url: ${WECHAT_WORK_WEBHOOK}
+    
+  dingtalk:
+    enabled: false
+    webhook_url: ${DINGTALK_WEBHOOK}
+
+# 构建保留策略
+retention_policy:
+  # 构建保留数量
+  builds_to_keep: 50
+  
+  # 构建保留天数
+  days_to_keep: 30
+  
+  # 制品保留策略
+  artifacts:
+    reports: 90  # 测试报告保留90天
+    logs: 30     # 日志保留30天
+    screenshots: 7  # 截图保留7天
+
+# 资源配置
+resources:
+  # 节点标签要求
+  node_labels:
+    - docker
+    - linux
+  
+  # 资源限制
+  limits:
+    memory: "4Gi"
+    cpu: "2"
+    disk: "10Gi"
+  
+  # 超时设置
+  timeouts:
+    build: 3600  # 构建超时1小时
+    step: 1800   # 步骤超时30分钟
+    idle: 300    # 空闲超时5分钟
+
+# 安全配置
+security:
+  # 凭据管理
+  credentials:
+    - id: github-token
+      type: secret_text
+      description: "GitHub Personal Access Token"
+    - id: db-password
+      type: secret_text
+      description: "Database Password"
+    - id: api-key
+      type: secret_text
+      description: "API Key for External Services"
+  
+  # 权限控制
+  permissions:
+    read: ["authenticated"]
+    build: ["developers", "ci-service"]
+    configure: ["admins"]
+    delete: ["admins"]
+  
+  # 审计配置
+  audit:
+    enabled: true
+    log_file: "jenkins-audit.log"
+    events:
+      - build_start
+      - build_complete
+      - config_change
+      - user_login
+
+# 插件配置
+plugins:
+  required:
+    - name: pipeline-stage-view
+      version: "2.25"
+    - name: allure-jenkins-plugin
+      version: "2.30.2"
+    - name: junit
+      version: "1.60"
+    - name: slack
+      version: "2.48"
+    - name: email-ext
+      version: "2.84"
+    - name: build-timeout
+      version: "1.24"
+    - name: timestamper
+      version: "1.13"
+  
+  optional:
+    - name: blue-ocean
+      version: "1.24.8"
+    - name: docker-workflow
+      version: "1.26"
