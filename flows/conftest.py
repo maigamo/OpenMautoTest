@@ -44,7 +44,7 @@ def flow_test_environment() -> Dict[str, Any]:
     env_info = {
         "environment": settings.ENVIRONMENT,
         "project_name": settings.PROJECT_NAME,
-        "version": settings.VERSION,
+        "version": settings.PROJECT_VERSION,
         "test_start_time": datetime.now(),
         "output_dir": Path("output").resolve(),
         "log_level": settings.LOG_LEVEL

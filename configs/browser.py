@@ -116,12 +116,26 @@ class PlaywrightConfig(BrowserConfig):
     # 视频录制
     video_dir: Optional[str] = None
     video_size: Optional[Dict[str, int]] = None
+    RECORD_VIDEO: bool = False  # 添加缺失的属性
     
     # HAR 记录
     har_path: Optional[str] = None
     
     # 追踪设置
     trace_dir: Optional[str] = None
+    
+    # 调试模式
+    DEBUG_MODE: bool = False  # 添加缺失的属性
+    
+    # 窗口尺寸 (兼容性属性)
+    WINDOW_WIDTH: int = 1920  # 添加缺失的属性
+    WINDOW_HEIGHT: int = 1080  # 添加缺失的属性
+    
+    # 移动设备模拟
+    MOBILE_DEVICE: Optional[str] = None  # 添加缺失的属性
+    
+    # 浏览器启动参数 (兼容性属性)
+    BROWSER_ARGS: Optional[List[str]] = None  # 添加缺失的属性
     
     def __post_init__(self):
         """初始化后处理"""
@@ -140,6 +154,16 @@ class PlaywrightConfig(BrowserConfig):
         
         if self.video_size is None:
             self.video_size = {"width": self.viewport_width, "height": self.viewport_height}
+        
+        # 初始化兼容性属性
+        if self.BROWSER_ARGS is None:
+            self.BROWSER_ARGS = self.args.copy() if self.args else []
+        
+        # 确保窗口尺寸与视口尺寸一致
+        if self.WINDOW_WIDTH != self.VIEWPORT_WIDTH:
+            self.WINDOW_WIDTH = self.VIEWPORT_WIDTH
+        if self.WINDOW_HEIGHT != self.VIEWPORT_HEIGHT:
+            self.WINDOW_HEIGHT = self.VIEWPORT_HEIGHT
 
 
 @dataclass

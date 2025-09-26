@@ -54,6 +54,23 @@ class OpenMautoTestSettings(BaseSettings):
     REDIS_DB: int = Field(default=0, description="Redis数据库编号")
     
     # ===================
+    # 环境变量别名（兼容性）
+    # ===================
+    # 数据库别名
+    DB_HOST: Optional[str] = Field(default=None, description="数据库主机（别名）")
+    DB_PORT: Optional[int] = Field(default=None, description="数据库端口（别名）")
+    DB_NAME: Optional[str] = Field(default=None, description="数据库名称（别名）")
+    DB_USER: Optional[str] = Field(default=None, description="数据库用户（别名）")
+    DB_PASSWORD: Optional[str] = Field(default=None, description="数据库密码（别名）")
+    
+    # MongoDB 别名
+    MONGO_HOST: Optional[str] = Field(default=None, description="MongoDB主机（别名）")
+    MONGO_PORT: Optional[int] = Field(default=None, description="MongoDB端口（别名）")
+    MONGO_DB: Optional[str] = Field(default=None, description="MongoDB数据库（别名）")
+    MONGO_USER: Optional[str] = Field(default=None, description="MongoDB用户（别名）")
+    MONGO_PASSWORD: Optional[str] = Field(default=None, description="MongoDB密码（别名）")
+    
+    # ===================
     # Jenkins 配置
     # ===================
     JENKINS_URL: Optional[str] = Field(default=None, description="Jenkins服务器URL")
@@ -137,6 +154,34 @@ class OpenMautoTestSettings(BaseSettings):
     # ===================
     # 验证器
     # ===================
+    @validator('DATABASE_HOST', pre=True, always=True)
+    def resolve_database_host(cls, v: str, values: Dict[str, Any]) -> str:
+        """解析数据库主机（优先使用别名）"""
+        return values.get('DB_HOST', v) or v
+    
+    @validator('DATABASE_PORT', pre=True, always=True)
+    def resolve_database_port(cls, v: int, values: Dict[str, Any]) -> int:
+        """解析数据库端口（优先使用别名）"""
+        alias_port = values.get('DB_PORT')
+        if alias_port is not None:
+            return int(alias_port)
+        return v
+    
+    @validator('DATABASE_NAME', pre=True, always=True)
+    def resolve_database_name(cls, v: str, values: Dict[str, Any]) -> str:
+        """解析数据库名称（优先使用别名）"""
+        return values.get('DB_NAME', v) or v
+    
+    @validator('DATABASE_USER', pre=True, always=True)
+    def resolve_database_user(cls, v: str, values: Dict[str, Any]) -> str:
+        """解析数据库用户（优先使用别名）"""
+        return values.get('DB_USER', v) or v
+    
+    @validator('DATABASE_PASSWORD', pre=True, always=True)
+    def resolve_database_password(cls, v: str, values: Dict[str, Any]) -> str:
+        """解析数据库密码（优先使用别名）"""
+        return values.get('DB_PASSWORD', v) or v
+
     @validator('DATABASE_URL', pre=True, always=True)
     def build_database_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
         """构建数据库连接URL"""
@@ -151,6 +196,24 @@ class OpenMautoTestSettings(BaseSettings):
         
         return f"postgresql://{user}:{password}@{host}:{port}/{name}"
     
+    @validator('MONGODB_HOST', pre=True, always=True)
+    def resolve_mongodb_host(cls, v: str, values: Dict[str, Any]) -> str:
+        """解析MongoDB主机（优先使用别名）"""
+        return values.get('MONGO_HOST', v) or v
+    
+    @validator('MONGODB_PORT', pre=True, always=True)
+    def resolve_mongodb_port(cls, v: int, values: Dict[str, Any]) -> int:
+        """解析MongoDB端口（优先使用别名）"""
+        alias_port = values.get('MONGO_PORT')
+        if alias_port is not None:
+            return int(alias_port)
+        return v
+    
+    @validator('MONGODB_DATABASE', pre=True, always=True)
+    def resolve_mongodb_database(cls, v: str, values: Dict[str, Any]) -> str:
+        """解析MongoDB数据库（优先使用别名）"""
+        return values.get('MONGO_DB', v) or v
+
     @validator('MONGODB_URL', pre=True, always=True)
     def build_mongodb_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
         """构建MongoDB连接URL"""

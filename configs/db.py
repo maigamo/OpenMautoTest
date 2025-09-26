@@ -73,6 +73,9 @@ class DatabaseConfig:
             else:
                 var_value = os.getenv(var_expr)
                 if var_value is None:
+                    # 对于可选的MongoDB和Redis配置，返回空字符串而不是抛出异常
+                    if var_expr.startswith(('MONGO_', 'REDIS_')):
+                        return ""
                     raise DatabaseConfigError(f"Required environment variable not set: {var_expr}")
                 return var_value
         
@@ -104,23 +107,45 @@ class DatabaseConfig:
         
         return env_config['postgresql']
     
-    def get_mongodb_config(self, environment: Optional[str] = None) -> Dict[str, Any]:
-        """获取MongoDB配置"""
-        env_config = self.get_environment_config(environment)
-        
-        if 'mongodb' not in env_config:
-            raise DatabaseConfigError("MongoDB config not found")
-        
-        return env_config['mongodb']
+    def get_mongodb_config(self, environment: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """获取MongoDB配置（可选）"""
+        try:
+            env_config = self.get_environment_config(environment)
+            
+            if 'mongodb' not in env_config:
+                return None
+            
+            mongo_config = env_config['mongodb']
+            
+            # 检查必要的配置是否存在且非空
+            required_fields = ['host', 'port', 'database']
+            for field in required_fields:
+                if not mongo_config.get(field):
+                    return None
+            
+            return mongo_config
+        except Exception:
+            return None
     
-    def get_redis_config(self, environment: Optional[str] = None) -> Dict[str, Any]:
-        """获取Redis配置"""
-        env_config = self.get_environment_config(environment)
-        
-        if 'redis' not in env_config:
-            raise DatabaseConfigError("Redis config not found")
-        
-        return env_config['redis']
+    def get_redis_config(self, environment: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """获取Redis配置（可选）"""
+        try:
+            env_config = self.get_environment_config(environment)
+            
+            if 'redis' not in env_config:
+                return None
+            
+            redis_config = env_config['redis']
+            
+            # 检查必要的配置是否存在且非空
+            required_fields = ['host', 'port', 'db']
+            for field in required_fields:
+                if redis_config.get(field) is None or redis_config.get(field) == "":
+                    return None
+            
+            return redis_config
+        except Exception:
+            return None
     
     def get_postgresql_url(self, environment: Optional[str] = None) -> str:
         """获取PostgreSQL连接URL"""
@@ -144,9 +169,12 @@ class DatabaseConfig:
         
         return url
     
-    def get_mongodb_url(self, environment: Optional[str] = None) -> str:
-        """获取MongoDB连接URL"""
+    def get_mongodb_url(self, environment: Optional[str] = None) -> Optional[str]:
+        """获取MongoDB连接URL（可选）"""
         config = self.get_mongodb_config(environment)
+        
+        if config is None:
+            return None
         
         host = config['host']
         port = config['port']
@@ -174,9 +202,12 @@ class DatabaseConfig:
         
         return url
     
-    def get_redis_url(self, environment: Optional[str] = None) -> str:
-        """获取Redis连接URL"""
+    def get_redis_url(self, environment: Optional[str] = None) -> Optional[str]:
+        """获取Redis连接URL（可选）"""
         config = self.get_redis_config(environment)
+        
+        if config is None:
+            return None
         
         host = config['host']
         port = config['port']
@@ -249,29 +280,35 @@ class DatabaseConfig:
             # 验证环境配置存在
             env_config = self.get_environment_config(environment)
             
-            # 验证PostgreSQL配置
+            # 验证PostgreSQL配置（必需）
             if 'postgresql' in env_config:
                 pg_config = env_config['postgresql']
                 required_fields = ['host', 'port', 'database', 'username']
                 for field in required_fields:
-                    if field not in pg_config:
+                    if field not in pg_config or not pg_config[field]:
                         raise DatabaseConfigError(f"Missing required PostgreSQL field: {field}")
+            else:
+                raise DatabaseConfigError("PostgreSQL configuration is required")
             
-            # 验证MongoDB配置
+            # 验证MongoDB配置（可选）
             if 'mongodb' in env_config:
                 mongo_config = env_config['mongodb']
-                required_fields = ['host', 'port', 'database']
-                for field in required_fields:
-                    if field not in mongo_config:
-                        raise DatabaseConfigError(f"Missing required MongoDB field: {field}")
+                # 如果配置了MongoDB，检查基本字段
+                if mongo_config:
+                    required_fields = ['host', 'port', 'database']
+                    for field in required_fields:
+                        if field not in mongo_config:
+                            print(f"Warning: MongoDB field '{field}' is missing, MongoDB will be disabled")
             
-            # 验证Redis配置
+            # 验证Redis配置（可选）
             if 'redis' in env_config:
                 redis_config = env_config['redis']
-                required_fields = ['host', 'port', 'db']
-                for field in required_fields:
-                    if field not in redis_config:
-                        raise DatabaseConfigError(f"Missing required Redis field: {field}")
+                # 如果配置了Redis，检查基本字段
+                if redis_config:
+                    required_fields = ['host', 'port', 'db']
+                    for field in required_fields:
+                        if field not in redis_config:
+                            print(f"Warning: Redis field '{field}' is missing, Redis will be disabled")
             
             return True
             
@@ -324,13 +361,13 @@ def get_postgresql_url(environment: Optional[str] = None) -> str:
     return get_db_config().get_postgresql_url(environment)
 
 
-def get_mongodb_url(environment: Optional[str] = None) -> str:
-    """获取MongoDB连接URL"""
+def get_mongodb_url(environment: Optional[str] = None) -> Optional[str]:
+    """获取MongoDB连接URL（可选）"""
     return get_db_config().get_mongodb_url(environment)
 
 
-def get_redis_url(environment: Optional[str] = None) -> str:
-    """获取Redis连接URL"""
+def get_redis_url(environment: Optional[str] = None) -> Optional[str]:
+    """获取Redis连接URL（可选）"""
     return get_db_config().get_redis_url(environment)
 
 
