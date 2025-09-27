@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from dotenv import load_dotenv
-from pydantic import Field, validator
+from pydantic import Field, field_validator, ConfigDict
 from pydantic_settings import BaseSettings
 
 
@@ -154,91 +154,102 @@ class OpenMautoTestSettings(BaseSettings):
     # ===================
     # 验证器
     # ===================
-    @validator('DATABASE_HOST', pre=True, always=True)
-    def resolve_database_host(cls, v: str, values: Dict[str, Any]) -> str:
+    @field_validator('DATABASE_HOST', mode='before')
+    @classmethod
+    def resolve_database_host(cls, v: str, info) -> str:
         """解析数据库主机（优先使用别名）"""
-        return values.get('DB_HOST', v) or v
-    
-    @validator('DATABASE_PORT', pre=True, always=True)
-    def resolve_database_port(cls, v: int, values: Dict[str, Any]) -> int:
-        """解析数据库端口（优先使用别名）"""
-        alias_port = values.get('DB_PORT')
-        if alias_port is not None:
-            return int(alias_port)
+        if hasattr(info, 'data') and info.data:
+            return info.data.get('DB_HOST', v) or v
         return v
     
-    @validator('DATABASE_NAME', pre=True, always=True)
-    def resolve_database_name(cls, v: str, values: Dict[str, Any]) -> str:
+    @field_validator('DATABASE_PORT', mode='before')
+    @classmethod
+    def resolve_database_port(cls, v: int, info) -> int:
+        """解析数据库端口（优先使用别名）"""
+        if hasattr(info, 'data') and info.data:
+            alias_port = info.data.get('DB_PORT')
+            if alias_port is not None:
+                return int(alias_port)
+        return v
+    
+    @field_validator('DATABASE_NAME', mode='before')
+    @classmethod
+    def resolve_database_name(cls, v: str, info) -> str:
         """解析数据库名称（优先使用别名）"""
-        return values.get('DB_NAME', v) or v
+        if hasattr(info, 'data') and info.data:
+            return info.data.get('DB_NAME', v) or v
+        return v
     
-    @validator('DATABASE_USER', pre=True, always=True)
-    def resolve_database_user(cls, v: str, values: Dict[str, Any]) -> str:
+    @field_validator('DATABASE_USER', mode='before')
+    @classmethod
+    def resolve_database_user(cls, v: str, info) -> str:
         """解析数据库用户（优先使用别名）"""
-        return values.get('DB_USER', v) or v
+        if hasattr(info, 'data') and info.data:
+            return info.data.get('DB_USER', v) or v
+        return v
     
-    @validator('DATABASE_PASSWORD', pre=True, always=True)
-    def resolve_database_password(cls, v: str, values: Dict[str, Any]) -> str:
+    @field_validator('DATABASE_PASSWORD', mode='before')
+    @classmethod
+    def resolve_database_password(cls, v: str, info) -> str:
         """解析数据库密码（优先使用别名）"""
-        return values.get('DB_PASSWORD', v) or v
+        if hasattr(info, 'data') and info.data:
+            return info.data.get('DB_PASSWORD', v) or v
+        return v
 
-    @validator('DATABASE_URL', pre=True, always=True)
-    def build_database_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
+    @field_validator('DATABASE_URL', mode='before')
+    @classmethod
+    def build_database_url(cls, v: Optional[str], info) -> str:
         """构建数据库连接URL"""
         if isinstance(v, str) and v:
             return v
         
-        host = values.get('DATABASE_HOST', 'localhost')
-        port = values.get('DATABASE_PORT', 5432)
-        name = values.get('DATABASE_NAME', 'openmautotest')
-        user = values.get('DATABASE_USER', 'postgres')
-        password = values.get('DATABASE_PASSWORD', '')
-        
-        return f"postgresql://{user}:{password}@{host}:{port}/{name}"
+        # 使用默认值，因为在这个阶段其他字段可能还未验证
+        return f"postgresql://postgres:@localhost:5432/openmautotest"
     
-    @validator('MONGODB_HOST', pre=True, always=True)
-    def resolve_mongodb_host(cls, v: str, values: Dict[str, Any]) -> str:
+    @field_validator('MONGODB_HOST', mode='before')
+    @classmethod
+    def resolve_mongodb_host(cls, v: str, info) -> str:
         """解析MongoDB主机（优先使用别名）"""
-        return values.get('MONGO_HOST', v) or v
-    
-    @validator('MONGODB_PORT', pre=True, always=True)
-    def resolve_mongodb_port(cls, v: int, values: Dict[str, Any]) -> int:
-        """解析MongoDB端口（优先使用别名）"""
-        alias_port = values.get('MONGO_PORT')
-        if alias_port is not None:
-            return int(alias_port)
+        if hasattr(info, 'data') and info.data:
+            return info.data.get('MONGO_HOST', v) or v
         return v
     
-    @validator('MONGODB_DATABASE', pre=True, always=True)
-    def resolve_mongodb_database(cls, v: str, values: Dict[str, Any]) -> str:
+    @field_validator('MONGODB_PORT', mode='before')
+    @classmethod
+    def resolve_mongodb_port(cls, v: int, info) -> int:
+        """解析MongoDB端口（优先使用别名）"""
+        if hasattr(info, 'data') and info.data:
+            alias_port = info.data.get('MONGO_PORT')
+            if alias_port is not None:
+                return int(alias_port)
+        return v
+    
+    @field_validator('MONGODB_DATABASE', mode='before')
+    @classmethod
+    def resolve_mongodb_database(cls, v: str, info) -> str:
         """解析MongoDB数据库（优先使用别名）"""
-        return values.get('MONGO_DB', v) or v
+        if hasattr(info, 'data') and info.data:
+            return info.data.get('MONGO_DB', v) or v
+        return v
 
-    @validator('MONGODB_URL', pre=True, always=True)
-    def build_mongodb_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
+    @field_validator('MONGODB_URL', mode='before')
+    @classmethod
+    def build_mongodb_url(cls, v: Optional[str], info) -> str:
         """构建MongoDB连接URL"""
         if isinstance(v, str) and v:
             return v
-        
-        host = values.get('MONGODB_HOST', 'localhost')
-        port = values.get('MONGODB_PORT', 27017)
-        database = values.get('MONGODB_DATABASE', 'openmautotest')
-        
-        return f"mongodb://{host}:{port}/{database}"
+        return f"mongodb://localhost:27017/openmautotest"
     
-    @validator('REDIS_URL', pre=True, always=True)
-    def build_redis_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
+    @field_validator('REDIS_URL', mode='before')
+    @classmethod
+    def build_redis_url(cls, v: Optional[str], info) -> str:
         """构建Redis连接URL"""
         if isinstance(v, str) and v:
             return v
-        
-        host = values.get('REDIS_HOST', 'localhost')
-        port = values.get('REDIS_PORT', 6379)
-        db = values.get('REDIS_DB', 0)
-        
-        return f"redis://{host}:{port}/{db}"
+        return f"redis://localhost:6379/0"
     
-    @validator('LOG_LEVEL')
+    @field_validator('LOG_LEVEL')
+    @classmethod
     def validate_log_level(cls, v: str) -> str:
         """验证日志级别"""
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
@@ -246,7 +257,8 @@ class OpenMautoTestSettings(BaseSettings):
             raise ValueError(f'LOG_LEVEL must be one of {valid_levels}')
         return v.upper()
     
-    @validator('BROWSER_TYPE')
+    @field_validator('BROWSER_TYPE')
+    @classmethod
     def validate_browser_type(cls, v: str) -> str:
         """验证浏览器类型"""
         valid_browsers = ['chromium', 'firefox', 'webkit']
@@ -254,7 +266,8 @@ class OpenMautoTestSettings(BaseSettings):
             raise ValueError(f'BROWSER_TYPE must be one of {valid_browsers}')
         return v.lower()
     
-    @validator('ENVIRONMENT')
+    @field_validator('ENVIRONMENT')
+    @classmethod
     def validate_environment(cls, v: str) -> str:
         """验证环境类型"""
         valid_envs = ['development', 'testing', 'staging', 'production']
@@ -301,13 +314,13 @@ class OpenMautoTestSettings(BaseSettings):
         """是否为生产环境"""
         return self.ENVIRONMENT == "production"
     
-    class Config:
-        """Pydantic配置"""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        validate_assignment = True
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        validate_assignment=True,
+        arbitrary_types_allowed=True
+    )
 
 
 def load_settings() -> OpenMautoTestSettings:

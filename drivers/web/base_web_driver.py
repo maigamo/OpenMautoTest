@@ -20,6 +20,7 @@ from common.utils.file_utils import ensure_dir
 from common.utils.time_utils import Timer
 from configs.browser import get_browser_config
 from configs.settings import get_settings
+from .playwright_proxy import PlaywrightProxy, PlaywrightOperations
 
 
 class WebDriverError(Exception):
@@ -43,7 +44,8 @@ class BaseWebDriver:
         
         # 浏览器配置
         self.browser_type = browser_type or self.browser_settings.BROWSER_TYPE
-        self.headless = headless if headless is not None else self.browser_settings.HEADLESS
+        # self.headless = headless if headless is not None else self.browser_settings.HEADLESS
+        self.headless = False    # 调试代码，以非无头模式运行浏览器驱动（开发过程保留）
         
         # 浏览器实例
         self._playwright: Optional[Playwright] = None
@@ -56,6 +58,10 @@ class BaseWebDriver:
         
         # 性能监控
         self.performance_metrics = {}
+        
+        # 初始化Playwright代理和操作类
+        self._proxy = PlaywrightProxy()
+        self._operations = PlaywrightOperations()
         
         self.logger.info(f"Initialized WebDriver: {self.browser_type}, headless={self.headless}")
     
@@ -113,6 +119,10 @@ class BaseWebDriver:
             
             # 创建页面
             self._page = await self._context.new_page()
+            
+            # 设置代理对象的Page引用
+            self._proxy.set_page(self._page)
+            self._operations.set_page(self._page)
             
             # 监听控制台消息
             self._page.on("console", self._handle_console_message)
@@ -475,6 +485,109 @@ class BaseWebDriver:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器退出"""
         await self.stop()
+    
+    # ===================
+    # Playwright操作代理属性
+    # ===================
+    
+    @property
+    def playwright_ops(self) -> PlaywrightOperations:
+        """获取Playwright操作对象
+        
+        提供对常用Playwright操作的封装访问
+        
+        Returns:
+            PlaywrightOperations实例
+            
+        Examples:
+            # 使用封装的操作方法
+            await driver.playwright_ops.screenshot("test.png")
+            button = await driver.playwright_ops.get_by_role("button", name="Submit")
+            await driver.playwright_ops.evaluate("document.title")
+        """
+        return self._operations
+    
+    # ===================
+    # 便捷方法（常用操作的直接访问）
+    # ===================
+    
+    async def screenshot(self, path: Optional[str] = None, **kwargs) -> bytes:
+        """截取页面截图（便捷方法）
+        
+        Args:
+            path: 保存路径，为None时自动生成
+            **kwargs: 其他参数
+        
+        Returns:
+            截图字节数据
+        """
+        if path is None:
+            timestamp = int(time.time() * 1000)
+            path = str(self.screenshot_dir / f"screenshot_{timestamp}.png")
+        
+        return await self._operations.screenshot(path, **kwargs)
+    
+    async def get_by_role(self, role: str, **kwargs) -> Locator:
+        """通过角色获取元素定位器（便捷方法）"""
+        return await self._operations.get_by_role(role, **kwargs)
+    
+    async def get_by_text(self, text: str, **kwargs) -> Locator:
+        """通过文本内容获取元素定位器（便捷方法）"""
+        return await self._operations.get_by_text(text, **kwargs)
+    
+    async def get_by_test_id(self, test_id: str) -> Locator:
+        """通过测试ID获取元素定位器（便捷方法）"""
+        return await self._operations.get_by_test_id(test_id)
+    
+    # ===================
+    # 动态代理实现
+    # ===================
+    
+    def __getattr__(self, name: str) -> Any:
+        """动态代理，转发调用给Playwright对象
+        
+        这个方法实现了对Playwright Page API的动态代理，允许直接调用Playwright的方法
+        而不需要显式地通过self._page访问。
+        
+        代理优先级：
+        1. 首先检查是否为PlaywrightOperations的方法
+        2. 然后使用PlaywrightProxy进行代理
+        3. 如果都不是，抛出AttributeError异常
+        
+        Args:
+            name: 要调用的方法或属性名
+            
+        Returns:
+            Playwright对象的方法或属性
+            
+        Raises:
+            WebDriverError: 当Page对象未初始化时
+            AttributeError: 当方法或属性不存在时
+            
+        Examples:
+            # 直接调用Playwright Page API
+            await driver.goto("https://example.com")  # 等价于 await driver._page.goto(...)
+            await driver.click("button")             # 等价于 await driver._page.click(...)
+            await driver.fill("input", "text")       # 等价于 await driver._page.fill(...)
+            
+            # 调用Locator方法
+            locator = driver.locator("button")       # 等价于 driver._page.locator(...)
+            await locator.click()
+            
+            # 访问属性
+            url = driver.url                         # 等价于 driver._page.url
+        """
+        # 首先检查是否为PlaywrightOperations的方法
+        if hasattr(self._operations, name):
+            return getattr(self._operations, name)
+        
+        # 然后使用PlaywrightProxy进行代理
+        try:
+            return getattr(self._proxy, name)
+        except AttributeError:
+            # 提供更友好的错误信息
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'. "
+                               f"Make sure the page is initialized by calling start() method first.")
 
 
 class WebPage(BasePage):

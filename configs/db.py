@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import yaml
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, text
 from sqlalchemy.pool import QueuePool
 
 from .settings import get_settings
@@ -326,7 +326,7 @@ class DatabaseConfig:
                 try:
                     engine = self.create_postgresql_engine(environment)
                     with engine.connect() as conn:
-                        conn.execute("SELECT 1")
+                        conn.execute(text("SELECT 1"))
                     results['postgresql'] = True
                 except Exception as e:
                     print(f"PostgreSQL connection failed: {e}")

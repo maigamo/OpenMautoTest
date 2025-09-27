@@ -11,7 +11,7 @@ from sqlalchemy import (
     BIGINT, Boolean, Column, DateTime, Float, Integer, String, Text,
     Index, CheckConstraint, ForeignKey
 )
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB, UUID

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -67,7 +67,7 @@ class DatabaseRecorder:
             
             # 测试连接
             with self._engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             
             self.logger.info("Database connection initialized successfully")
             
@@ -511,6 +511,13 @@ class HybridRecorder:
         self.db_recorder = DatabaseRecorder(batch_size, max_retries)
         self.file_recorder = FileRecorder()
         self._use_database = self.db_recorder._engine is not None
+        
+        # 记录数据库状态
+        if self._use_database:
+            self.logger.info("数据库连接成功，将使用数据库记录测试数据")
+        else:
+            self.logger.warning("数据库连接失败，将使用文件记录测试数据（降级模式）")
+            self.logger.warning("请检查数据库配置和服务状态，或运行数据库初始化脚本")
     
     def record_test_case_run(self, data: Dict[str, Any]) -> Optional[Union[int, Path]]:
         """记录测试用例执行数据
@@ -541,22 +548,28 @@ class HybridRecorder:
             self.logger.error(f"File recording also failed: {e}")
             return None
     
-    def record_test_step(self, test_case_run_id: int, data: Dict[str, Any]) -> Optional[Union[int, Path]]:
+    def record_test_step(self, test_case_run_id: Union[int, Path], data: Dict[str, Any]) -> Optional[Union[int, Path]]:
         """记录测试步骤数据
         
         Args:
-            test_case_run_id: 测试用例执行记录ID
+            test_case_run_id: 测试用例执行记录ID或文件路径
             data: 步骤数据
         
         Returns:
             数据库记录ID或文件路径
         """
-        if self._use_database:
+        # 如果test_case_run_id是Path对象，说明主记录已经降级到文件模式
+        if isinstance(test_case_run_id, Path):
+            self.logger.info(f"Parent record is file-based, using file recording for step")
+            self._use_database = False
+        
+        if self._use_database and isinstance(test_case_run_id, int):
             try:
                 step_id = self.db_recorder.create_test_step(test_case_run_id, data)
                 if step_id is not None:
                     return step_id
                 else:
+                    self.logger.warning("Database step recording failed, falling back to file")
                     self._use_database = False
             except Exception as e:
                 self.logger.error(f"Database step recording error: {e}")
@@ -564,8 +577,15 @@ class HybridRecorder:
         
         # 降级到文件记录
         try:
-            data['test_case_run_id'] = test_case_run_id
-            filename = f"test_step_{test_case_run_id}_{data.get('step_order', 0)}_{int(time.time())}.json"
+            # 对于文件记录，保存关联信息但不依赖数据库ID
+            if isinstance(test_case_run_id, Path):
+                data['parent_file'] = str(test_case_run_id)
+                parent_identifier = test_case_run_id.stem
+            else:
+                data['test_case_run_id'] = test_case_run_id
+                parent_identifier = str(test_case_run_id)
+            
+            filename = f"test_step_{parent_identifier}_{data.get('step_order', 0)}_{int(time.time())}.json"
             return self.file_recorder.record(data, filename)
         except Exception as e:
             self.logger.error(f"File step recording also failed: {e}")
