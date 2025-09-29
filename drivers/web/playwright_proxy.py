@@ -125,6 +125,18 @@ class PlaywrightOperations:
         self._page = page
         self.logger = get_logger("playwright_operations")
     
+    def __call__(self, *args, **kwargs):
+        """防止对象被错误地当作函数调用
+        
+        Raises:
+            TypeError: 当尝试调用对象时抛出错误
+        """
+        raise TypeError(
+            f"'{self.__class__.__name__}' object is not callable. "
+            f"Did you mean to call a method on this object? "
+            f"Available methods include: get_by_role, get_by_text, screenshot, etc."
+        )
+    
     def set_page(self, page: Page) -> None:
         """设置Page对象
         

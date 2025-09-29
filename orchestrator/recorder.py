@@ -152,6 +152,12 @@ class DatabaseRecorder:
                 data.setdefault('retry_attempt', 0)
                 data.setdefault('is_deleted', False)
                 
+                # 处理Path对象，转换为字符串
+                from pathlib import Path
+                for key, value in data.items():
+                    if isinstance(value, Path):
+                        data[key] = str(value)
+                
                 # 创建记录
                 record = TestCaseRun.create_from_dict(data)
                 session.add(record)
@@ -196,6 +202,10 @@ class DatabaseRecorder:
                 # 更新字段
                 for key, value in data.items():
                     if hasattr(record, key):
+                        # 处理Path对象，转换为字符串
+                        from pathlib import Path
+                        if isinstance(value, Path):
+                            value = str(value)
                         setattr(record, key, value)
                 
                 # 更新时间
@@ -245,6 +255,12 @@ class DatabaseRecorder:
                 
                 # 设置默认值
                 data.setdefault('status', 'pending')
+                
+                # 处理Path对象，转换为字符串
+                from pathlib import Path
+                for key, value in data.items():
+                    if isinstance(value, Path):
+                        data[key] = str(value)
                 
                 # 创建步骤记录
                 step = TestStep(**data)
@@ -542,6 +558,12 @@ class HybridRecorder:
         
         # 降级到文件记录
         try:
+            # 确保有run_id，如果没有则生成一个
+            if 'run_id' not in data or not data['run_id']:
+                import uuid
+                data['run_id'] = str(uuid.uuid4())
+                self.logger.warning(f"Generated new run_id for test case: {data['run_id']}")
+            
             filename = f"test_case_run_{data.get('run_id', 'unknown')}_{int(time.time())}.json"
             return self.file_recorder.record(data, filename)
         except Exception as e:

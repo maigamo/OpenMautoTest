@@ -326,11 +326,11 @@ class TestRunSummary(Base):
     
     # 表约束
     __table_args__ = (
-        Index('idx_run_id', 'run_id'),
-        Index('idx_project_name', 'project_name'),
-        Index('idx_environment', 'environment'),
-        Index('idx_start_time', 'start_time'),
-        Index('idx_created_at', 'created_at'),
+        Index('idx_summary_run_id', 'run_id'),
+        Index('idx_summary_project_name', 'project_name'),
+        Index('idx_summary_environment', 'environment'),
+        Index('idx_summary_start_time', 'start_time'),
+        Index('idx_summary_created_at', 'created_at'),
         CheckConstraint('total_tests >= 0', name='ck_total_tests_positive'),
         CheckConstraint('passed_tests >= 0', name='ck_passed_tests_positive'),
         CheckConstraint('failed_tests >= 0', name='ck_failed_tests_positive'),

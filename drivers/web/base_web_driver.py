@@ -175,7 +175,15 @@ class BaseWebDriver:
     
     def _handle_page_error(self, error):
         """处理页面错误"""
-        self.logger.error(f"Page error: {error}")
+        error_msg = str(error)
+        
+        # 检查是否是常见的JavaScript错误
+        if "Cannot read properties of undefined" in error_msg:
+            self.logger.warning(f"JavaScript undefined error (may be expected): {error_msg}")
+        elif "data" in error_msg and "undefined" in error_msg:
+            self.logger.warning(f"Data access error (may be timing related): {error_msg}")
+        else:
+            self.logger.error(f"Page error: {error_msg}")
     
     @property
     def page(self) -> Page:

@@ -350,8 +350,15 @@ async def web_context(web_driver: BaseWebDriver, request) -> AsyncGenerator[WebT
     context = WebTestContext(web_driver, test_name)
     
     # 开始测试记录
+    # 确保有run_id，如果没有则生成一个
+    import uuid
+    run_id = getattr(request.config, 'run_id', None)
+    if run_id is None:
+        run_id = str(uuid.uuid4())
+        request.config.run_id = run_id
+    
     test_info = {
-        'run_id': getattr(request.config, 'run_id', 'unknown'),
+        'run_id': run_id,
         'environment': get_settings().ENVIRONMENT,
         'project_name': 'OpenMautoTest'
     }
