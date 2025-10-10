@@ -18,6 +18,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from common.logger import get_logger
 from common.utils.file_utils import ensure_dir, write_json_file
 from common.utils.time_utils import Timer
+from common.utils.data_utils import sanitize_data_for_database, validate_required_fields
 from configs.db import get_db_config
 from configs.settings import get_settings
 from db.models import Base, TestCaseRun, TestStep, TestRunSummary
@@ -140,26 +141,23 @@ class DatabaseRecorder:
                 raise RecorderError("Database session not available")
             
             try:
-                # 确保必需字段存在
-                if 'run_id' not in data:
-                    data['run_id'] = str(uuid.uuid4())
+                # 清理数据以适配数据库
+                cleaned_data = sanitize_data_for_database(data)
                 
-                if 'test_case_name' not in data:
-                    raise ValueError("test_case_name is required")
+                # 确保必需字段存在
+                if 'run_id' not in cleaned_data:
+                    cleaned_data['run_id'] = str(uuid.uuid4())
+                
+                # 验证必需字段
+                validate_required_fields(cleaned_data, ['test_case_name'])
                 
                 # 设置默认值
-                data.setdefault('status', 'pending')
-                data.setdefault('retry_attempt', 0)
-                data.setdefault('is_deleted', False)
-                
-                # 处理Path对象，转换为字符串
-                from pathlib import Path
-                for key, value in data.items():
-                    if isinstance(value, Path):
-                        data[key] = str(value)
+                cleaned_data.setdefault('status', 'pending')
+                cleaned_data.setdefault('retry_attempt', 0)
+                cleaned_data.setdefault('is_deleted', False)
                 
                 # 创建记录
-                record = TestCaseRun.create_from_dict(data)
+                record = TestCaseRun.create_from_dict(cleaned_data)
                 session.add(record)
                 session.commit()
                 
@@ -195,17 +193,16 @@ class DatabaseRecorder:
                 raise RecorderError("Database session not available")
             
             try:
+                # 清理数据以适配数据库
+                cleaned_data = sanitize_data_for_database(data)
+                
                 record = session.query(TestCaseRun).filter_by(id=record_id).first()
                 if record is None:
                     raise ValueError(f"Test case run not found: {record_id}")
                 
                 # 更新字段
-                for key, value in data.items():
+                for key, value in cleaned_data.items():
                     if hasattr(record, key):
-                        # 处理Path对象，转换为字符串
-                        from pathlib import Path
-                        if isinstance(value, Path):
-                            value = str(value)
                         setattr(record, key, value)
                 
                 # 更新时间
@@ -243,27 +240,21 @@ class DatabaseRecorder:
                 raise RecorderError("Database session not available")
             
             try:
+                # 清理数据以适配数据库
+                cleaned_data = sanitize_data_for_database(data)
+                
                 # 设置关联ID
-                data['test_case_run_id'] = test_case_run_id
+                cleaned_data['test_case_run_id'] = test_case_run_id
                 
-                # 确保必需字段存在
-                if 'step_name' not in data:
-                    raise ValueError("step_name is required")
-                
-                if 'step_order' not in data:
-                    raise ValueError("step_order is required")
+                # 验证必需字段
+                validate_required_fields(cleaned_data, ['step_name', 'step_order'])
                 
                 # 设置默认值
-                data.setdefault('status', 'pending')
-                
-                # 处理Path对象，转换为字符串
-                from pathlib import Path
-                for key, value in data.items():
-                    if isinstance(value, Path):
-                        data[key] = str(value)
+                cleaned_data.setdefault('status', 'pending')
+                cleaned_data.setdefault('retry_attempt', 0)
                 
                 # 创建步骤记录
-                step = TestStep(**data)
+                step = TestStep(**cleaned_data)
                 session.add(step)
                 session.commit()
                 
@@ -298,24 +289,27 @@ class DatabaseRecorder:
                 raise RecorderError("Database session not available")
             
             try:
+                # 清理数据以适配数据库
+                cleaned_data = sanitize_data_for_database(data)
+                
                 # 确保必需字段存在
-                if 'run_id' not in data:
-                    data['run_id'] = str(uuid.uuid4())
+                if 'run_id' not in cleaned_data:
+                    cleaned_data['run_id'] = str(uuid.uuid4())
                 
                 # 设置默认值
-                data.setdefault('total_tests', 0)
-                data.setdefault('passed_tests', 0)
-                data.setdefault('failed_tests', 0)
-                data.setdefault('skipped_tests', 0)
+                cleaned_data.setdefault('total_tests', 0)
+                cleaned_data.setdefault('passed_tests', 0)
+                cleaned_data.setdefault('failed_tests', 0)
+                cleaned_data.setdefault('skipped_tests', 0)
                 
                 # 计算通过率
-                if data['total_tests'] > 0:
-                    data['pass_rate'] = (data['passed_tests'] / data['total_tests']) * 100
+                if cleaned_data['total_tests'] > 0:
+                    cleaned_data['pass_rate'] = (cleaned_data['passed_tests'] / cleaned_data['total_tests']) * 100
                 else:
-                    data['pass_rate'] = 0
+                    cleaned_data['pass_rate'] = 0
                 
                 # 创建汇总记录
-                summary = TestRunSummary(**data)
+                summary = TestRunSummary(**cleaned_data)
                 session.add(summary)
                 session.commit()
                 
